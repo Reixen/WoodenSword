@@ -1,0 +1,15 @@
+<items gfxroot="gfx/items/" version="1">
+
+    <active id="1" name="Wooden Sword" 
+        description="Prone to fire" gfx="wooden_sword.png"
+        quality="4" chargetype="special" 
+    />
+
+    <passive id="2" name="Exemplar's Beacon"
+        description="..." gfx="wooden_sword.png"
+        quality="4"
+    />
+
+    <null id="1" name="Agui's Blessing"/>
+
+</items>
