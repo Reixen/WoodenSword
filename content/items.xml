@@ -5,9 +5,9 @@
         quality="4" chargetype="special" 
     />
 
-    <passive id="2" name="Exemplar's Beacon"
-        description="..." gfx="wooden_sword.png"
-        quality="4"
+    <familiar id="2" name="Exemplar's Beacon"
+        description="..." gfx="exemplars_beacon.png"
+        quality="4" cache="familiars" tags="offensive summonable monstermanual"
     />
 
     <null id="1" name="Agui's Blessing"/>

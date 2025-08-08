@@ -1,5 +1,9 @@
 <entities anm2root="gfx/" version="5">
 
+    <entity name="Exemplar's Beacon (Familiar)"
+        id="3" anm2path="familiar_exemplars_beacon.anm2" friction="1" tags="cansacrifice" shadowSize="11" 
+    />
+
     <!--
     <entity name="Cloud Poof"
 		id="1000" variant="600" subtype="10" anm2path="1000.600_cloud_poof.anm2" friction="0"

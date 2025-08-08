@@ -19,6 +19,16 @@ function Util:CopyTable(table)
     end
     return copy
 end
+
+---@param entity Entity
+---@param identifier string
+---@param default table
+function Util:GetData(entity, identifier, default)
+    local data = entity:GetData()
+    data._SwordMod = data._SwordMod or {}
+    data._SwordMod[identifier] = data._SwordMod[identifier] or default or {}
+    return data._SwordMod[identifier]
+end
 -- Entity Identifier
 --local PriceTextFontTempesta = Font()
 --PriceTextFontTempesta:Load("font/pftempestasevencondensed.fnt")
