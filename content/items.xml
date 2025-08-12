@@ -1,13 +1,8 @@
 <items gfxroot="gfx/items/" version="1">
 
-    <active id="1" name="Wooden Sword" 
-        description="Prone to fire" gfx="wooden_sword.png"
-        quality="4" chargetype="special" 
-    />
-
-    <familiar id="2" name="Exemplar's Beacon"
-        description="..." gfx="exemplars_beacon.png"
-        quality="4" cache="familiars" tags="offensive summonable monstermanual"
+    <passive id="1" name="Wooden Sword" 
+        description="A beacon of hope" gfx="wooden_sword.png"
+        quality="4" customcache="effectfeedback"
     />
 
     <null id="1" name="Agui's Blessing"/>

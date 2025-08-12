@@ -1,8 +1,16 @@
 <entities anm2root="gfx/" version="5">
 
-    <entity name="Exemplar's Beacon (Familiar)"
-        id="3" anm2path="familiar_exemplars_beacon.anm2" friction="1" tags="cansacrifice" shadowSize="11" 
-    />
+    <entity name="Exemplar's Beacon"
+        id="1000" variant="930" anm2path="effect_exemplars_beacon.anm2"
+        shadowSize="10" collisionRadius="0.5" friction="1">
+    </entity>
+
+    <entity name="Sword Attack" id="1000" variant="931" anm2path="effect_sword_attack.anm2" collisionRadius="1" />
+    <entity name="Blessed Tear" id="2" anm2path="tear_blessed.anm2" 
+        collisionMass="8" collisionRadius="7"
+        shadowSize="8" numGridCollisionPoints="8" friction="1">
+    </entity>
+    
 
     <!--
     <entity name="Cloud Poof"

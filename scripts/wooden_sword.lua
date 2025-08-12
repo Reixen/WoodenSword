@@ -2,129 +2,134 @@
 local Mod = ExemplarsBeacon
 
 local Sword = {}
-Mod.Sword = Sword
+ExemplarsBeacon.Sword = Sword
 
 local Util = Mod.Util
 
 Sword.WOODEN_SWORD_ID = Isaac.GetItemIdByName("Wooden Sword")
-Sword.EXEMPLARS_BEACON_ID = Isaac.GetItemIdByName("Exemplar's Beacon")
 Sword.BLESSING_ID = Isaac.GetNullItemIdByName("Agui's Blessing")
+Sword.BLESSED_TEAR_VARIANT = Isaac.GetEntityVariantByName("Blessed Tear")
+Sword.SWORD_EFFECT_VARIANT = Isaac.GetEntityVariantByName("Exemplar's Beacon")
+Sword.ATTACK_EFFECT_VARIANT = Isaac.GetEntityVariantByName("Sword Attack")
 
-local itemConfig = Isaac.GetItemConfig()
-Sword.BEACON_CONFIG = itemConfig:GetCollectible(Sword.EXEMPLARS_BEACON_ID)
-Sword.FAMILIAR_VARIANT = Isaac.GetEntityVariantByName("Exemplar's Beacon (Familiar)")
-
-Sword.TEAR_COUNT_BETWEEN_ATTACKS = 5
-Sword.POSITION_OFFSET = 40
+Sword.ATTACKS_BETWEEN_ACTIVATION = 5
+Sword.POSITION_OFFSET = 45
 
 local ONE_SEC = 30
-
--- todo:
--- Reeturn sword aftre shooting
--- stop tear spam
 
 --#endregion
 --#region Sword Callbacks
 ---@param player EntityPlayer
-function Sword:EvaluateCache(player)
+function Sword:EvaluateCache(player, customCache)
     local fx = player:GetEffects()
-    local familiarCount = fx:GetCollectibleEffectNum(Sword.EXEMPLARS_BEACON_ID) + player:GetCollectibleNum(Sword.EXEMPLARS_BEACON_ID)
-    local rng = RNG(Random())
-
-    local sword = player:CheckFamiliarEx(Sword.FAMILIAR_VARIANT, familiarCount > 0 and 1 or 0, rng, Sword.BEACON_CONFIG)
     local data = Util:GetData(player, "Sword")
-    data.swordCount = familiarCount
-    data.swordEntity = sword[1]
-end
-Mod:AddCallback(ModCallbacks.MC_EVALUATE_CACHE, Sword.EvaluateCache, CacheFlag.CACHE_FAMILIARS)
-
----@param familiar EntityFamiliar
-function Sword:OnSwordInit(familiar)
-    familiar.Position = familiar.Player.Position
-    familiar.GridCollisionClass = EntityGridCollisionClass.GRIDCOLL_WALLS
-    local data = Util:GetData(familiar.Player, "Sword")
-    if data.canStartUp then
-        data.canStartUp = false
-        familiar:GetSprite():Play("StartUp", true)
+    if (fx:GetCollectibleEffectNum(Sword.WOODEN_SWORD_ID) + player:GetCollectibleNum(Sword.WOODEN_SWORD_ID)) > 0
+    and not data.sword then
+        data.sword = Util:SpawnEffect(Sword.SWORD_EFFECT_VARIANT, player.Position, 0, player)
+    elseif data.sword then
+        data.sword:Remove()
+        data.sword = nil
     end
 end
+Mod:AddCallback(ModCallbacks.MC_EVALUATE_CUSTOM_CACHE, Sword.EvaluateCache, "effectfeedback")
+
+---@param effect EntityEffect
+function Sword:OnSwordInit(effect)
+    effect:AddEntityFlags(EntityFlag.FLAG_PERSISTENT)
+    --local data = Util:GetData(effect, "Sword")
+end
+Mod:AddCallback(ModCallbacks.MC_POST_EFFECT_INIT, Sword.OnSwordInit, Sword.SWORD_EFFECT_VARIANT)
 
 function Sword:VectorLerp(init, target, strength) return init + (target - init) * strength end
 
----@param familiar EntityFamiliar
-function Sword:OnSwordUpdate(familiar)
-    local player = familiar.Player
+---@param effect EntityEffect
+function Sword:OnSwordUpdate(effect)
+    local player = effect.SpawnerEntity and effect.SpawnerEntity:ToPlayer()
+    if not player then return end
 
     local aimDirection = player:GetAimDirection()
+    local movement = player:GetMovementVector()
     if aimDirection.X < 0 then
-        familiar.FlipX = false
+        effect.FlipX = false
     elseif aimDirection.X > 0 then
-        familiar.FlipX = true
+        effect.FlipX = true
+    elseif movement.X < 0 then
+        effect.FlipX = false
+    elseif movement.X > 0 then
+        effect.FlipX = true
     end
-    local positionOffset = familiar.FlipX and -Sword.POSITION_OFFSET or Sword.POSITION_OFFSET
+
+    local positionOffset =  effect.FlipX and -Sword.POSITION_OFFSET or Sword.POSITION_OFFSET
     local idlePosition = player.Position + Vector(positionOffset, 0)
-    local targetVelocity = (idlePosition - familiar.Position):Resized(20)
+    local distance = idlePosition:DistanceSquared(effect.Position) / 60
+    local speed = 10
+    local targetVelocity = (idlePosition - effect.Position):Resized(math.min(speed * distance, speed))
+    effect.Velocity = Sword:VectorLerp(effect.Velocity, targetVelocity, 0.3)
 
-    familiar.Velocity = Sword:VectorLerp(familiar.Velocity, targetVelocity, 0.2)
-
-    local sprite = familiar:GetSprite()
+    local sprite = effect:GetSprite()
     local data = Util:GetData(player, "Sword")
     if sprite:IsFinished("StartUp")
     or sprite:IsFinished("Return") then
+        if sprite:GetAnimation() == "Return" then
+            if Util.Game:GetChallengeParams():CanShoot() then
+                player:SetCanShoot(true)
+                data.tearsFired = Sword.ATTACKS_BETWEEN_ACTIVATION + 2
+            end
+        end
+        --print("finished")
         sprite:Play("Idle", true)
     end
 
     local fx = player:GetEffects()
-    data.tearsFired = data.tearsFired or 0
-    if fx:HasNullEffect(Sword.BLESSING_ID) and player:CanShoot() then
-        sprite:Play("Return", true)
+    data.tearsFired = data.tearsFired or Sword.ATTACKS_BETWEEN_ACTIVATION + 2
+    if not fx:HasNullEffect(Sword.BLESSING_ID) and not player:CanShoot() then
+        if not sprite:IsPlaying("Return") then
+            --print("return")
+            effect:SetShadowSize(0.11)
+            sprite:Play("Return", true)
+        end
         return
     end
 
-    if data.tearsFired % Sword.TEAR_COUNT_BETWEEN_ATTACKS == 0 and not sprite:IsPlaying("Fade") then
+    if data.tearsFired % (Sword.ATTACKS_BETWEEN_ACTIVATION + 1) == 0 and sprite:GetAnimation() ~= "Fade" then
         sprite:Play("Fade")
-    elseif sprite:IsFinished("Fade") then
+        local shootingCD = ONE_SEC - 7 -- No splitframe head switching
+        player:SetShootingCooldown(shootingCD)
+    elseif sprite:IsFinished("Fade") and player:CanShoot() and not fx:HasNullEffect(Sword.BLESSING_ID) then
+        effect:SetShadowSize(0)
         player:AddNullItemEffect(Sword.BLESSING_ID, true)
         player:SetColor(Color(1, 1, 1, 1, 0.3, 0.2, 0), ONE_SEC, 10, true, false)
         Util.SfxMan:Play(SoundEffect.SOUND_BEEP)
+        player:SetCanShoot(false)
     end
 end
-Mod:AddCallback(ModCallbacks.MC_FAMILIAR_UPDATE, Sword.OnSwordUpdate, Sword.FAMILIAR_VARIANT)
+Mod:AddCallback(ModCallbacks.MC_POST_EFFECT_UPDATE, Sword.OnSwordUpdate, Sword.SWORD_EFFECT_VARIANT)
 
 --function Sword:OnRender(familiar)
     --Isaac.DrawLine(Isaac.WorldToScreen(familiar.Player.Position), Isaac.WorldToScreen(familiar.Position), KColor.Blue, KColor.Transparent, 10)
 --end
 --Mod:AddCallback(ModCallbacks.MC_PRE_FAMILIAR_RENDER, Sword.OnRender, Sword.FAMILIAR_VARIANT)
----@param player EntityPlayer
-function Sword:OnUseWoodenSword(_, _, player)
-    player:RemoveCollectible(Sword.EXEMPLARS_BEACON_ID)
-    local data = Util:GetData(player, "Sword")
-    data.canStartUp = true
-    player:AddCollectible(Sword.EXEMPLARS_BEACON_ID)
-    return {
-        Remove = true,
-        ShowAnim = true
-    }
-end
-Mod:AddCallback(ModCallbacks.MC_USE_ITEM, Sword.OnUseWoodenSword, Sword.WOODEN_SWORD_ID)
 
 ---@param player EntityPlayer
 function Sword:OnPlayerUpdate(player)
     local fx = player:GetEffects()
 
-    print(fx:HasNullEffect(Sword.BLESSING_ID) and "i has null" or "no null")
-    if not fx:HasNullEffect(Sword.BLESSING_ID) then
-        if not player:CanShoot() then
-            player:SetCanShoot(true)
-        end
-        print("return")
-        return
-    end
+    local aimDirection = player:GetAimDirection()
+    if (aimDirection.X ~= 0 or aimDirection.Y ~= 0) and fx:HasNullEffect(Sword.BLESSING_ID)
+    and player.FireDelay < 1 then
+        local tear = player:FireTear(player.Position, player:GetAimDirection() * player.ShotSpeed * 10 + player:GetTearMovementInheritance(player:GetAimDirection()), false)
+        tear:GetSprite():ReplaceSpritesheet(0, "gfx/tear_blessed.png", true)
+        --tear:ChangeVariant(Sword.BLESSED_TEAR_VARIANT)
+        tear.TearFlags = TearFlags.TEAR_HOMING | TearFlags.TEAR_BURN
+        tear:GetData().isBlessed = true
+        fx:RemoveNullEffect(Sword.BLESSING_ID, 1)
 
-    player:SetCanShoot(false)
-    player:FireTear(player.Position, player:GetAimDirection() * player.ShotSpeed + player:GetTearMovementInheritance(player:GetAimDirection()), false)
-    fx:RemoveNullEffect(Sword.BLESSING_ID)
-    print("removing")
+        local fireDelay = player.MaxFireDelay // 1
+        local fireDirection = player:GetFireDirection()
+        player:SetHeadDirection(fireDirection, fireDelay)
+        player.HeadFrameDelay = fireDelay
+        player.FireDelay = player.MaxFireDelay
+    end
 end
 Mod:AddCallback(ModCallbacks.MC_POST_PEFFECT_UPDATE, Sword.OnPlayerUpdate)
 
@@ -132,7 +137,7 @@ Mod:AddCallback(ModCallbacks.MC_POST_PEFFECT_UPDATE, Sword.OnPlayerUpdate)
 function Sword:OnWeaponFire(_, _, entity)
     local player = entity:ToPlayer()
     if not player or entity.Variant ~= PlayerVariant.PLAYER
-    or (not player:GetEffects():HasCollectibleEffect(Sword.EXEMPLARS_BEACON_ID) and not player:HasCollectible(Sword.EXEMPLARS_BEACON_ID))
+    or (not player:GetEffects():HasCollectibleEffect(Sword.WOODEN_SWORD_ID) and not player:HasCollectible(Sword.WOODEN_SWORD_ID))
     then return end
 
     local data = Util:GetData(player, "Sword")
@@ -141,16 +146,25 @@ end
 Mod:AddCallback(ModCallbacks.MC_POST_TRIGGER_WEAPON_FIRED, Sword.OnWeaponFire, WeaponType.WEAPON_TEARS)
 
 ---@param tear EntityTear
-function Sword:PostFireTear(tear)
-    local player = tear.SpawnerEntity and tear.SpawnerEntity:ToPlayer() ---@cast player EntityPlayer | nil
-    if not player then return end
-
-    local fx = player:GetEffects()
-    if fx:HasNullEffect(Sword.BLESSING_ID) then
-        tear.Color = Color(1, 1, 1, 1, 0.4, 0, 0.4)
-        tear.TearFlags = tear.TearFlags | TearFlags.TEAR_BURN
-        fx:RemoveNullEffect(Sword.BLESSING_ID)
+---@param collider Entity
+function Sword:OnTearCollision(tear, collider)
+    if collider:IsVulnerableEnemy() and tear:GetData().isBlessed == true then
+        Util:SpawnEffect(Sword.ATTACK_EFFECT_VARIANT, tear.Position + tear.PositionOffset, 1).Color = tear.Color
+        Util.SfxMan:Play(SoundEffect.SOUND_BEAST_BACKGROUND_DIVE)
+        Util.Room():MamaMegaExplosion(tear.Position)
     end
 end
-Mod:AddCallback(ModCallbacks.MC_POST_FIRE_TEAR, Sword.PostFireTear)
+Mod:AddCallback(ModCallbacks.MC_POST_TEAR_COLLISION, Sword.OnTearCollision)
+
+function Sword:OnNewRoom()
+    for _, sword in ipairs(Util:GetEffects(Sword.SWORD_EFFECT_VARIANT)) do
+        local player = sword.SpawnerEntity and sword.SpawnerEntity:ToPlayer()
+        if player then
+            local positionOffset =  sword.FlipX and -Sword.POSITION_OFFSET or Sword.POSITION_OFFSET
+            local idlePosition = player.Position + Vector(positionOffset, 0)
+            sword.Position = idlePosition
+        end
+    end
+end
+Mod:AddCallback(ModCallbacks.MC_POST_NEW_ROOM, Sword.OnNewRoom)
 --#endregion

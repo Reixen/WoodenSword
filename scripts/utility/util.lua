@@ -2,12 +2,12 @@
 local Mod = ExemplarsBeacon
 
 local Util = {}
-Mod.Util = Util
+ExemplarsBeacon.Util = Util
 
 Util.Game = Game()
 Util.SfxMan = SFXManager()
-Util.Room = function() return Mod.Game:GetRoom() end
-Util.Level = function() return Mod.Game:GetLevel() end
+Util.Room = function() return Util.Game:GetRoom() end ---@return Room
+Util.Level = function() return Util.Game:GetLevel() end ---@return Level
 --#endregion
 --#region Helper Functions
 ---@param table table
@@ -22,13 +22,33 @@ end
 
 ---@param entity Entity
 ---@param identifier string
----@param default table
+---@param default table?
 function Util:GetData(entity, identifier, default)
     local data = entity:GetData()
     data._SwordMod = data._SwordMod or {}
     data._SwordMod[identifier] = data._SwordMod[identifier] or default or {}
     return data._SwordMod[identifier]
 end
+
+---@param variant EffectVariant
+---@param position Vector
+---@param subtype integer?
+---@param spawner Entity?
+---@param velocity Vector?
+---@return Entity
+function Util:SpawnEffect(variant, position, subtype, spawner, velocity)
+    return Isaac.Spawn(EntityType.ENTITY_EFFECT, variant, subtype or 0, position, velocity or Vector.Zero, spawner or nil)
+end
+
+---@param variant EffectVariant
+---@param subtype integer?
+---@param cache boolean?
+---@param ignoreFriendly boolean?
+---@return Entity[]
+function Util:GetEffects(variant, subtype, cache, ignoreFriendly)
+    return Isaac.FindByType(EntityType.ENTITY_EFFECT, variant, subtype, cache, ignoreFriendly)
+end
+
 -- Entity Identifier
 --local PriceTextFontTempesta = Font()
 --PriceTextFontTempesta:Load("font/pftempestasevencondensed.fnt")
