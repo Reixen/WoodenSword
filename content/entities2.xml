@@ -5,7 +5,7 @@
         shadowSize="10" collisionRadius="0.5" friction="1">
     </entity>
 
-    <entity name="Sword Attack" id="1000" variant="931" anm2path="effect_sword_attack.anm2" collisionRadius="1" />
+    <entity name="Summoning Light" id="1000" variant="931" anm2path="effect_summoning_light.anm2" collisionRadius="1" />
     <entity name="Blessed Tear" id="2" anm2path="tear_blessed.anm2" 
         collisionMass="8" collisionRadius="7"
         shadowSize="8" numGridCollisionPoints="8" friction="1">

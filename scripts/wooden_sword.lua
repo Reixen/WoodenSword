@@ -5,6 +5,7 @@ local Sword = {}
 ExemplarsBeacon.Sword = Sword
 
 local Util = Mod.Util
+local AttackHelper = Mod.AttackHelper.Functions
 
 Sword.WOODEN_SWORD_ID = Isaac.GetItemIdByName("Wooden Sword")
 Sword.BLESSING_ID = Isaac.GetNullItemIdByName("Agui's Blessing")
@@ -17,6 +18,12 @@ Sword.POSITION_OFFSET = 45
 
 local ONE_SEC = 30
 
+-- TODO:
+-- Cleanup code pls
+-- Cache num of weapon fired when the sword comes back
+-- Make the weapon come back when the tear dies
+-- Make the capsule thingy!
+
 --#endregion
 --#region Sword Callbacks
 ---@param player EntityPlayer
@@ -26,7 +33,8 @@ function Sword:EvaluateCache(player, customCache)
     if (fx:GetCollectibleEffectNum(Sword.WOODEN_SWORD_ID) + player:GetCollectibleNum(Sword.WOODEN_SWORD_ID)) > 0
     and not data.sword then
         data.sword = Util:SpawnEffect(Sword.SWORD_EFFECT_VARIANT, player.Position, 0, player)
-    elseif data.sword then
+    elseif (fx:GetCollectibleEffectNum(Sword.WOODEN_SWORD_ID) + player:GetCollectibleNum(Sword.WOODEN_SWORD_ID)) == 0
+    and data.sword then
         data.sword:Remove()
         data.sword = nil
     end
@@ -35,6 +43,12 @@ Mod:AddCallback(ModCallbacks.MC_EVALUATE_CUSTOM_CACHE, Sword.EvaluateCache, "eff
 
 ---@param effect EntityEffect
 function Sword:OnSwordInit(effect)
+    local player = effect.SpawnerEntity and effect.SpawnerEntity:ToPlayer()
+    if not player then return end
+
+    local positionOffset =  effect.FlipX and -Sword.POSITION_OFFSET or Sword.POSITION_OFFSET
+    local idlePosition = player.Position + Vector(positionOffset, 0)
+    effect.Position = idlePosition
     effect:AddEntityFlags(EntityFlag.FLAG_PERSISTENT)
     --local data = Util:GetData(effect, "Sword")
 end
@@ -68,34 +82,33 @@ function Sword:OnSwordUpdate(effect)
 
     local sprite = effect:GetSprite()
     local data = Util:GetData(player, "Sword")
+    if not data.fireAmount
+    or (data.fireAmount % (Sword.ATTACKS_BETWEEN_ACTIVATION) > 1 or data.fireAmount <= player:GetActiveWeaponNumFired()) then
+        data.fireAmount = player:GetActiveWeaponNumFired()
+    end
+
     if sprite:IsFinished("StartUp")
     or sprite:IsFinished("Return") then
-        if sprite:GetAnimation() == "Return" then
-            if Util.Game:GetChallengeParams():CanShoot() then
-                player:SetCanShoot(true)
-                data.tearsFired = Sword.ATTACKS_BETWEEN_ACTIVATION + 2
-            end
-        end
-        --print("finished")
         sprite:Play("Idle", true)
     end
 
     local fx = player:GetEffects()
-    data.tearsFired = data.tearsFired or Sword.ATTACKS_BETWEEN_ACTIVATION + 2
-    if not fx:HasNullEffect(Sword.BLESSING_ID) and not player:CanShoot() then
-        if not sprite:IsPlaying("Return") then
-            --print("return")
+    if not fx:HasNullEffect(Sword.BLESSING_ID) then
+        if not sprite:IsPlaying("Return")
+        and data.summonedAttack
+        and data.summonedAttack:GetSprite():IsPlaying("Disappear") then
             effect:SetShadowSize(0.11)
             sprite:Play("Return", true)
+            data.summonedAttack = nil
         end
-        return
     end
 
-    if data.tearsFired % (Sword.ATTACKS_BETWEEN_ACTIVATION + 1) == 0 and sprite:GetAnimation() ~= "Fade" then
+    if data.fireAmount % (Sword.ATTACKS_BETWEEN_ACTIVATION) == 0 and sprite:GetAnimation() ~= "Fade" then
         sprite:Play("Fade")
         local shootingCD = ONE_SEC - 7 -- No splitframe head switching
         player:SetShootingCooldown(shootingCD)
-    elseif sprite:IsFinished("Fade") and player:CanShoot() and not fx:HasNullEffect(Sword.BLESSING_ID) then
+    elseif sprite:IsFinished("Fade") and player:CanShoot() and not fx:HasNullEffect(Sword.BLESSING_ID)
+    and not data.summonedAttack then
         effect:SetShadowSize(0)
         player:AddNullItemEffect(Sword.BLESSING_ID, true)
         player:SetColor(Color(1, 1, 1, 1, 0.3, 0.2, 0), ONE_SEC, 10, true, false)
@@ -118,43 +131,47 @@ function Sword:OnPlayerUpdate(player)
     if (aimDirection.X ~= 0 or aimDirection.Y ~= 0) and fx:HasNullEffect(Sword.BLESSING_ID)
     and player.FireDelay < 1 then
         local tear = player:FireTear(player.Position, player:GetAimDirection() * player.ShotSpeed * 10 + player:GetTearMovementInheritance(player:GetAimDirection()), false)
-        tear:GetSprite():ReplaceSpritesheet(0, "gfx/tear_blessed.png", true)
-        --tear:ChangeVariant(Sword.BLESSED_TEAR_VARIANT)
+
         tear.TearFlags = TearFlags.TEAR_HOMING | TearFlags.TEAR_BURN
-        tear:GetData().isBlessed = true
         fx:RemoveNullEffect(Sword.BLESSING_ID, 1)
+
+        local sprite = tear:GetSprite()
+        local tearAnim = sprite:GetAnimation()
+        tear:ChangeVariant(Sword.BLESSED_TEAR_VARIANT)
+        --sprite:Load("gfx/tear_blessed.anm2", true)
+        sprite:Play(tearAnim)
 
         local fireDelay = player.MaxFireDelay // 1
         local fireDirection = player:GetFireDirection()
         player:SetHeadDirection(fireDirection, fireDelay)
         player.HeadFrameDelay = fireDelay
         player.FireDelay = player.MaxFireDelay
+
+        local data = Util:GetData(player, "Sword")
+        data.fireAmount = player:GetActiveWeaponNumFired() + 1
+
+        Isaac.CreateTimer(function()
+        if Util.Game:GetChallengeParams():CanShoot() then
+            player:SetCanShoot(true)
+        end
+        end, fireDelay, 1, true)
     end
 end
 Mod:AddCallback(ModCallbacks.MC_POST_PEFFECT_UPDATE, Sword.OnPlayerUpdate)
 
----@param entity Entity
-function Sword:OnWeaponFire(_, _, entity)
-    local player = entity:ToPlayer()
-    if not player or entity.Variant ~= PlayerVariant.PLAYER
-    or (not player:GetEffects():HasCollectibleEffect(Sword.WOODEN_SWORD_ID) and not player:HasCollectible(Sword.WOODEN_SWORD_ID))
-    then return end
-
-    local data = Util:GetData(player, "Sword")
-    data.tearsFired = data.tearsFired and data.tearsFired + 1 or 1
-end
-Mod:AddCallback(ModCallbacks.MC_POST_TRIGGER_WEAPON_FIRED, Sword.OnWeaponFire, WeaponType.WEAPON_TEARS)
-
 ---@param tear EntityTear
 ---@param collider Entity
 function Sword:OnTearCollision(tear, collider)
-    if collider:IsVulnerableEnemy() and tear:GetData().isBlessed == true then
-        Util:SpawnEffect(Sword.ATTACK_EFFECT_VARIANT, tear.Position + tear.PositionOffset, 1).Color = tear.Color
+    if collider:IsVulnerableEnemy() then
+        local player = tear.SpawnerEntity and tear.SpawnerEntity:ToPlayer()
+        if not player then return end
+
+        local data = Util:GetData(player, "Sword")
+        data.summonedAttack = AttackHelper:SummonAttack(tear.Position + tear.PositionOffset, player)
         Util.SfxMan:Play(SoundEffect.SOUND_BEAST_BACKGROUND_DIVE)
-        Util.Room():MamaMegaExplosion(tear.Position)
     end
 end
-Mod:AddCallback(ModCallbacks.MC_POST_TEAR_COLLISION, Sword.OnTearCollision)
+Mod:AddCallback(ModCallbacks.MC_POST_TEAR_COLLISION, Sword.OnTearCollision, Sword.BLESSED_TEAR_VARIANT)
 
 function Sword:OnNewRoom()
     for _, sword in ipairs(Util:GetEffects(Sword.SWORD_EFFECT_VARIANT)) do
